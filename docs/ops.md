@@ -170,6 +170,78 @@ Both directories are an implementation detail of containerd and its plugins.
 They should not be tampered with as corruption and bugs can and will happen.
 External apps reading or watching changes in these directories have been known to cause `EBUSY` and stale file handles when containerd and/or its plugins try to cleanup resources.
 
+### Relocating the runtime (state) directory
+
+When the filesystem backing the default state directory (`/run/containerd`) is
+too small for a large number of containers, the runtime directory can be
+moved to a larger filesystem by setting `state` (or the `--state` flag) to an
+absolute path.
+
+When the gRPC/TTRPC endpoint addresses are not explicitly configured, they are
+derived from the state directory, so the main sockets move together with it:
+`<state>/containerd.sock` and `<state>/containerd.sock.ttrpc`.
+Explicitly configured socket addresses (in the
+`io.containerd.server.v1.grpc` and `io.containerd.server.v1.ttrpc` plugin
+blocks, or via `--address`) are always honored as-is. With the default state
+directory the resolved paths are identical to the historical
+`/run/containerd/containerd.sock` defaults, so existing deployments and the
+command line flags keep their current behavior.
+
+On start, when a non-default state directory is configured, containerd removes
+stale `containerd.sock`, `containerd.sock.ttrpc`, and (when unused)
+`debug.sock` leftovers from the default state directory. The cleanup is
+safe for rolling upgrades and reinstalls:
+
+- A file is removed only when it is a socket and no process is accepting
+  connections on it. A socket still served by another containerd instance is
+  left untouched, so co-located instances and in-place restarts are not
+  disrupted.
+- Non-socket files and sockets exposed via bind mounts are never unlinked;
+  removal failures are logged as warnings and never block startup.
+- With the default state directory configured, no cleanup runs at all.
+
+Because the cleanup only deletes dead socket files, running containers and
+their shims are unaffected: a live shim or daemon socket always answers the
+connectivity probe and is retained.
+
+#### Multi-instance hosts
+
+Every instance must use its own pair of `root` and `state` directories.
+Sockets are then created under the instance-specific state directory and the
+instances never touch each other's files. Clients must point at the matching
+socket, for example `ctr --address <state>/containerd.sock`.
+
+The shim socket directory is intentionally short and defaults to
+`/run/containerd/s` because unix socket paths are limited to roughly 104
+characters. To keep shim sockets separated per instance, configure a distinct
+short `socket_dir` (no longer than 38 characters on Linux) under the
+`io.containerd.runtime.v2.shim` plugin block:
+
+```toml
+[plugins."io.containerd.runtime.v2.shim"]
+  socket_dir = "/run/ctd-a/s"
+```
+
+#### Container orchestration and mount points
+
+Orchestrators may bind-mount the well-known socket path into pods or sidecar
+containers. The startup cleanup never removes a mounted, live socket (see
+above), but clients that hardcode `/run/containerd/containerd.sock` must be
+updated to the new path, or a static bind mount/symlink has to be provided by
+the node setup. Prefer configuring every client with the relocated socket
+path over relying on compatibility symlinks, since a symlink under the small
+default filesystem partially defeats the relocation.
+
+#### Applying a directory change
+
+The listening socket path is fixed for the lifetime of a daemon process, so
+switching the state directory takes effect on the next daemon restart rather
+than via a live config reload. On hosts with many containers, schedule the
+restart through the usual rolling/daemon-reload workflow; shims keep the
+container processes running across the daemon restart, and the stale-socket
+cleanup makes the restart (and package reinstall) succeed without manual
+`rm` steps or "address already in use" failures.
+
 ```toml
 version = 2
 

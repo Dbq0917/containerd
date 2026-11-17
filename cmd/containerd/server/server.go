@@ -149,12 +149,17 @@ func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 		grpcAddress  = readString(config.Plugins, "io.containerd.server.v1.grpc", "address")
 		ttrpcAddress = readString(config.Plugins, "io.containerd.server.v1.ttrpc", "address")
 	)
-	if grpcAddress == "" {
-		grpcAddress = defaults.DefaultAddress
-	}
-	if ttrpcAddress == "" {
-		ttrpcAddress = defaults.DefaultAddress + ".ttrpc"
-	}
+	// Derive unset/default local endpoints from the state directory so that
+	// a relocated runtime directory carries its sockets with it. Explicitly
+	// configured endpoints are always honored. With default settings the
+	// resolved addresses equal the historical defaults.
+	grpcAddress = resolveGRPCAddress(config, grpcAddress)
+	ttrpcAddress = resolveTTRPCAddress(config, grpcAddress, ttrpcAddress)
+
+	// Remove socket leftovers from the default state directory when running
+	// with a relocated runtime directory. The call is a no-op for the default
+	// state directory and never removes live endpoints.
+	cleanupStaleDefaultSockets(ctx, config)
 	for _, r := range config.RequiredPlugins {
 		required[r] = struct{}{}
 	}

@@ -75,6 +75,13 @@ func init() {
 		},
 		InitFn: func(ic *plugin.InitContext) (any, error) {
 			c := ic.Config.(*config)
+			// When the config does not override the built-in default, follow
+			// the address derived by the server (which is relative to the
+			// configured state directory). An explicitly configured address,
+			// including the historical default, is still honored.
+			if c.Address == "" || c.Address == defaults.DefaultAddress {
+				c.Address = ic.Properties[plugins.PropertyGRPCAddress]
+			}
 			if c.Address == "" {
 				return nil, fmt.Errorf("grpc address cannot be empty: %w", errdefs.ErrInvalidArgument)
 			}

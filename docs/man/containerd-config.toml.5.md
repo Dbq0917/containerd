@@ -33,7 +33,12 @@ Older configs are automatically migrated on startup.
 : The root directory for containerd metadata. (Default: "/var/lib/containerd")
 
 **state**
-: The state directory for containerd (Default: "/run/containerd")
+: The state directory for containerd (Default: "/run/containerd"). When a
+non-default state directory is set and the gRPC/TTRPC socket addresses are
+not explicitly configured, the sockets are created under that directory
+(`<state>/containerd.sock` and `<state>/containerd.sock.ttrpc`) and stale
+sockets left in the default directory are cleaned up on startup without
+removing live endpoints.
 
 **plugin_dir**
 : The directory for dynamic plugins to be stored
@@ -98,7 +103,9 @@ Plugins that are not enabled by default will provide their own configuration val
 documentation.
 
 - **[plugins."io.containerd.server.v1.grpc"]** configures the main gRPC server listener (version 4):
-  - **address** (Default: "/run/containerd/containerd.sock")
+  - **address** (Default: "/run/containerd/containerd.sock"; derived from
+    **state** as `<state>/containerd.sock` when left at the default and a
+    custom state directory is configured)
   - **uid** (Default: effective UID)
   - **gid** (Default: effective GID)
   - **max_recv_message_size** (Default: 16777216)
@@ -113,7 +120,9 @@ documentation.
   In version 4, this plugin is configured independently from the gRPC plugin.
   If the plugin block is omitted, the TTRPC server binds to its own default
   address rather than deriving one from the gRPC address:
-  - **address** (Default: "/run/containerd/containerd.sock.ttrpc")
+  - **address** (Default: "/run/containerd/containerd.sock.ttrpc"; derived
+    from the resolved gRPC address with a `.ttrpc` suffix when left at the
+    default and a custom state directory is configured)
   - **uid** (Default: effective UID)
   - **gid** (Default: effective GID)
 - **[plugins."io.containerd.server.v1.debug"]** configures the debug server listener (version 4).
